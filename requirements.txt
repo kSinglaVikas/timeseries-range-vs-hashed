@@ -1,0 +1,12 @@
+certifi==2026.1.4
+charset-normalizer==3.4.4
+confluent-kafka==2.13.0
+dnspython==2.8.0
+Faker==22.0.0
+idna==3.11
+pymongo==4.6.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.0
+requests==2.31.0
+six==1.17.0
+urllib3==2.6.3

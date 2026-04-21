@@ -1,0 +1,21 @@
+{
+  "name": "atlas-sink-timeseries-hash-connector",
+  "config": {
+    "connector.class": "com.mongodb.kafka.connect.MongoSinkConnector",
+    "topics": "events",
+    "connection.uri": "ATLAS_CONNECTION_STRING",
+    "database": "ATLAS_DATABASE",
+    "collection": "ATLAS_TIME_SERIES_HASH_COLLECTION",
+    "tasks.max": "MAX_TASKS",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "max.num.retries": "30",
+    "retries.defer.timeout": "10000",
+    "timeseries.timefield": "timestamp",
+    "timeseries.timefield.auto.convert": "true",
+    "timeseries.timefield.auto.convert.type": "epoch_millis",
+    "timeseries.metadata.field": "user_id",
+    "write.method": "insert"
+  }
+}

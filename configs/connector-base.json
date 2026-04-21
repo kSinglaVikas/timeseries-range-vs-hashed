@@ -1,0 +1,27 @@
+{
+  "name": "atlas-sink-connector",
+  "config": {
+    "connector.class": "com.mongodb.kafka.connect.MongoSinkConnector",
+    "topics": "events",
+    "connection.uri": "mongodb+srv://username:password@cluster.mongodb.net/",
+    "database": "kafka_data",
+    "collection": "events",
+    "tasks.max": "4",
+    "max.num.retries": "3",
+    "retries.defer.timeout": "5000",
+    "value.projection.type": "AllowList",
+    "value.projection.list": "*",
+    "document.id.strategy": "com.mongodb.kafka.connect.sink.processor.id_strategy.BsonOidStrategy",
+    "timeseries.timefield": "timestamp",
+    "timeseries.timefield.auto.convert": "true",
+    "timeseries.timefield.auto.convert.type": "millis",
+    "key.projection.type": "AllowList",
+    "key.projection.list": "",
+    "writemodel.strategy": "com.mongodb.kafka.connect.sink.writemodel.strategy.InsertOneDefaultStrategy",
+    "errors.tolerance": "all",
+    "errors.log.enable": true,
+    "errors.log.include.messages": true,
+    "errors.deadletterqueue.topic.name": "events.dlq",
+    "errors.deadletterqueue.context.headers.enable": true
+  }
+}
