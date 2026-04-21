@@ -15,7 +15,17 @@ NC='\033[0m'
 KAFKA_CONNECT_HOST=${KAFKA_CONNECT_HOST:-localhost}
 KAFKA_CONNECT_PORT=${KAFKA_CONNECT_PORT:-8083}
 KAFKA_TOPIC=${KAFKA_TOPIC:-events}
-KAFKA_CONTAINER="python-kafka-atlas-sink-kafka-1"
+
+# Auto-detect Kafka container name
+KAFKA_CONTAINER=$(docker ps --filter "label=com.docker.compose.service=kafka" --format "{{.Names}}" | head -1)
+if [ -z "$KAFKA_CONTAINER" ]; then
+    KAFKA_CONTAINER=$(docker ps --filter "ancestor=confluentinc/cp-kafka:*" --format "{{.Names}}" | head -1)
+fi
+if [ -z "$KAFKA_CONTAINER" ]; then
+    echo "Error: Could not find Kafka container. Please ensure Docker services are running."
+    docker ps --format "table {{.Names}}\t{{.Image}}"
+    exit 1
+fi
 
 print_header() {
     echo -e "${BLUE}========================================${NC}"

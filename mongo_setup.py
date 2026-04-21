@@ -50,12 +50,12 @@ hash_ns = f"{db_name}.{ts_hash_collection}"
 
 client.admin.command({
     'shardCollection': range_ns,
-    'key': {'user_id': 1, 'timestamp': 1},
+    'key': {'user_id': 1},
 })
-print(f"Applied range shard key on {range_ns}: {{'user_id': 1, 'timestamp': 1}}")
+print(f"Applied range shard key on {range_ns}: {{'user_id': 1}}")
 
 client.admin.command({
     'shardCollection': hash_ns,
-    'key': {'user_id': 'hashed', 'timestamp': 1},
+    'key': {'user_id': 'hashed'},
 })
-print(f"Applied hash shard key on {hash_ns}: {{'user_id': 'hashed', 'timestamp': 1}}")
+print(f"Applied hash shard key on {hash_ns}: {{'user_id': 'hashed'}}")
