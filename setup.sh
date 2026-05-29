@@ -46,11 +46,16 @@ fi
 print_success "Docker installed"
 
 # Check Docker Compose
-if ! command -v docker-compose &> /dev/null; then
+DOCKER_COMPOSE_CMD=""
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+else
     print_error "Docker Compose is not installed"
     exit 1
 fi
-print_success "Docker Compose installed"
+print_success "Docker Compose installed (${DOCKER_COMPOSE_CMD})"
 
 # Check Python3
 if ! command -v python3 &> /dev/null; then
@@ -111,10 +116,10 @@ print_step "Step 4: Starting Docker services..."
 
 if docker ps -a --format '{{.Names}}' | grep -q "python-kafka-atlas-sink"; then
     print_step "Containers already exist. Removing..."
-    docker-compose down > /dev/null 2>&1 || true
+    ${DOCKER_COMPOSE_CMD} down > /dev/null 2>&1 || true
 fi
 
-docker-compose up -d
+${DOCKER_COMPOSE_CMD} up -d
 sleep 10
 
 # Verify services are running
@@ -219,8 +224,8 @@ echo "  View Kafka topics:        docker exec python-kafka-atlas-sink-kafka-1 ka
 echo "  Check connector status:   curl http://localhost:8083/connectors/atlas-sink-timeseries-range-connector/status"
 echo "  Check lag (range):        docker exec python-kafka-atlas-sink-kafka-1 bash -c \"kafka-consumer-groups --bootstrap-server localhost:9092 --group connect-atlas-sink-timeseries-range-connector --describe\""
 echo "  Check lag (hash):         docker exec python-kafka-atlas-sink-kafka-1 bash -c \"kafka-consumer-groups --bootstrap-server localhost:9092 --group connect-atlas-sink-timeseries-hash-connector --describe\""
-echo "  View Docker logs:         docker-compose logs -f [service]"
-echo "  Stop services:            docker-compose down"
+echo "  View Docker logs:         ${DOCKER_COMPOSE_CMD} logs -f [service]"
+echo "  Stop services:            ${DOCKER_COMPOSE_CMD} down"
 echo ""
 
 print_success "All systems ready!"
