@@ -23,7 +23,14 @@ print(f"Dropped database: {db_name}")
 
 # Enable Sharding and create time series collections with appropriate shard keys
 
-client.admin.command({'enableSharding': db_name})
+
+def cluster_supports_sharding(mongo_client: MongoClient) -> bool:
+    """Return True when connected through mongos (required for sharding commands)."""
+    try:
+        hello = mongo_client.admin.command('hello')
+        return hello.get('msg') == 'isdbgrid'
+    except Exception:
+        return False
 
 db = client[db_name]
 for collection_name in (ts_range_collection, ts_hash_collection):
@@ -39,23 +46,29 @@ for collection_name in (ts_range_collection, ts_hash_collection):
         "with timeField='timestamp' and metaField='user_id'"
     )
 
-try:
-    client.admin.command({'enableSharding': db_name})
-except Exception:
-    # Database may already be sharded, which is fine.
-    pass
+if cluster_supports_sharding(client):
+    try:
+        client.admin.command({'enableSharding': db_name})
+    except Exception:
+        # Database may already be sharded, which is fine.
+        pass
 
-range_ns = f"{db_name}.{ts_range_collection}"
-hash_ns = f"{db_name}.{ts_hash_collection}"
+    range_ns = f"{db_name}.{ts_range_collection}"
+    hash_ns = f"{db_name}.{ts_hash_collection}"
 
-client.admin.command({
-    'shardCollection': range_ns,
-    'key': {'user_id': 1},
-})
-print(f"Applied range shard key on {range_ns}: {{'user_id': 1}}")
+    client.admin.command({
+        'shardCollection': range_ns,
+        'key': {'user_id': 1},
+    })
+    print(f"Applied range shard key on {range_ns}: {{'user_id': 1}}")
 
-client.admin.command({
-    'shardCollection': hash_ns,
-    'key': {'user_id': 'hashed'},
-})
-print(f"Applied hash shard key on {hash_ns}: {{'user_id': 'hashed'}}")
+    client.admin.command({
+        'shardCollection': hash_ns,
+        'key': {'user_id': 'hashed'},
+    })
+    print(f"Applied hash shard key on {hash_ns}: {{'user_id': 'hashed'}}")
+else:
+    print(
+        'Cluster does not support sharding commands (not connected through mongos). '
+        'Skipping enableSharding and shardCollection steps.'
+    )
