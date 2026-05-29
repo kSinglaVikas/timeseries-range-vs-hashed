@@ -68,6 +68,35 @@ wait_for_connect_ready() {
     return 1
 }
 
+connector_exists() {
+    local CONNECTOR_NAME=$1
+    local HTTP_CODE
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/connectors/$CONNECTOR_NAME" || true)
+    [ "$HTTP_CODE" = "200" ]
+}
+
+ensure_required_connectors() {
+    local RANGE_CONNECTOR="atlas-sink-timeseries-range-connector"
+    local HASH_CONNECTOR="atlas-sink-timeseries-hash-connector"
+
+    if connector_exists "$RANGE_CONNECTOR" && connector_exists "$HASH_CONNECTOR"; then
+        print_success "Required connectors already exist"
+        return 0
+    fi
+
+    print_step "One or more required connectors are missing. Deploying connectors..."
+    ./deploy-connector.sh
+
+    if connector_exists "$RANGE_CONNECTOR" && connector_exists "$HASH_CONNECTOR"; then
+        print_success "Required connectors are deployed"
+        return 0
+    fi
+
+    print_error "Required connectors are still missing after deployment attempt"
+    echo "Check connector list: curl -s http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/connectors"
+    return 1
+}
+
 # Function to pause a connector
 pause_connector() {
     local CONNECTOR_NAME=$1
@@ -214,6 +243,7 @@ print_header "MongoDB Sink Performance Test"
 
 # Ensure Kafka Connect is ready before connector operations
 wait_for_connect_ready 180
+ensure_required_connectors
 echo ""
 
 # Step 1: Pause both connectors
