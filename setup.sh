@@ -106,8 +106,15 @@ pip install --upgrade pip > /dev/null 2>&1
 print_success "pip upgraded"
 
 # Install requirements
-pip install -r requirements.txt > /dev/null 2>&1
-print_success "Dependencies installed"
+if pip install -r requirements.txt > /dev/null 2>&1; then
+    print_success "Dependencies installed"
+else
+    print_error "Failed to install Python dependencies"
+    echo ""
+    echo "Re-running with full output for debugging:"
+    pip install -r requirements.txt
+    exit 1
+fi
 
 echo ""
 
