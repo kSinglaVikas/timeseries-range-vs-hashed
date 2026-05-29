@@ -58,12 +58,27 @@ fi
 print_success "Docker Compose installed (${DOCKER_COMPOSE_CMD})"
 
 # Check Python3
-if ! command -v python3 &> /dev/null; then
+PYTHON_CMD=""
+if command -v python3.13 &> /dev/null; then
+    PYTHON_CMD="python3.13"
+elif command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+else
     print_error "Python 3 is not installed"
     exit 1
 fi
-PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-print_success "Python $PYTHON_VERSION installed"
+
+PYTHON_VERSION=$(${PYTHON_CMD} -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')
+PYTHON_MAJOR=$(${PYTHON_CMD} -c 'import sys; print(sys.version_info.major)')
+PYTHON_MINOR=$(${PYTHON_CMD} -c 'import sys; print(sys.version_info.minor)')
+
+if [ "${PYTHON_MAJOR}" -lt 3 ] || { [ "${PYTHON_MAJOR}" -eq 3 ] && [ "${PYTHON_MINOR}" -lt 10 ]; }; then
+    print_error "Python ${PYTHON_VERSION} is too old. This project requires Python 3.10+ (recommended: 3.13)."
+    echo "Install Python 3.13 and rerun setup."
+    exit 1
+fi
+
+print_success "Python ${PYTHON_VERSION} installed (${PYTHON_CMD})"
 
 # Step 2: Configure environment
 print_step "Step 2: Checking environment configuration..."
@@ -91,10 +106,21 @@ echo ""
 print_step "Step 3: Setting up Python virtual environment..."
 
 if [ ! -d "venv" ]; then
-    python3 -m venv venv
+    ${PYTHON_CMD} -m venv venv
     print_success "Virtual environment created"
 else
-    print_success "Virtual environment already exists"
+    VENV_PYTHON_VERSION=$(venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null || echo "unknown")
+    VENV_PYTHON_MAJOR=$(venv/bin/python -c 'import sys; print(sys.version_info.major)' 2>/dev/null || echo "0")
+    VENV_PYTHON_MINOR=$(venv/bin/python -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo "0")
+
+    if [ "${VENV_PYTHON_MAJOR}" -lt 3 ] || { [ "${VENV_PYTHON_MAJOR}" -eq 3 ] && [ "${VENV_PYTHON_MINOR}" -lt 10 ]; }; then
+        print_step "Existing virtual environment uses Python ${VENV_PYTHON_VERSION}. Recreating with ${PYTHON_CMD}..."
+        rm -rf venv
+        ${PYTHON_CMD} -m venv venv
+        print_success "Virtual environment recreated"
+    else
+        print_success "Virtual environment already exists (Python ${VENV_PYTHON_VERSION})"
+    fi
 fi
 
 # Activate venv
