@@ -46,22 +46,58 @@ print_error() {
     echo -e "${RED}✗ $1${NC}"
 }
 
+# Wait for Kafka Connect REST API to be reachable
+wait_for_connect_ready() {
+    local MAX_WAIT=${1:-180}
+    local INTERVAL=5
+    local ELAPSED=0
+
+    print_step "Waiting for Kafka Connect API at http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/..."
+
+    while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+        if curl -s "http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/" > /dev/null 2>&1; then
+            print_success "Kafka Connect API is reachable"
+            return 0
+        fi
+
+        sleep "$INTERVAL"
+        ELAPSED=$((ELAPSED + INTERVAL))
+    done
+
+    print_error "Kafka Connect API is not reachable after ${MAX_WAIT}s"
+    return 1
+}
+
 # Function to pause a connector
 pause_connector() {
     local CONNECTOR_NAME=$1
     echo -e "${YELLOW}Pausing connector: $CONNECTOR_NAME${NC}"
-    curl -s -X PUT "http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/connectors/$CONNECTOR_NAME/pause" > /dev/null
-    sleep 2
-    print_success "Connector $CONNECTOR_NAME paused"
+    local HTTP_CODE
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/connectors/$CONNECTOR_NAME/pause" || true)
+
+    if [ "${HTTP_CODE}" -ge 200 ] && [ "${HTTP_CODE}" -lt 300 ]; then
+        sleep 2
+        print_success "Connector $CONNECTOR_NAME paused"
+    else
+        print_error "Failed to pause connector $CONNECTOR_NAME (HTTP ${HTTP_CODE})"
+        return 1
+    fi
 }
 
 # Function to resume a connector
 resume_connector() {
     local CONNECTOR_NAME=$1
     echo -e "${YELLOW}Resuming connector: $CONNECTOR_NAME${NC}"
-    curl -s -X PUT "http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/connectors/$CONNECTOR_NAME/resume" > /dev/null
-    sleep 2
-    print_success "Connector $CONNECTOR_NAME resumed"
+    local HTTP_CODE
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "http://$KAFKA_CONNECT_HOST:$KAFKA_CONNECT_PORT/connectors/$CONNECTOR_NAME/resume" || true)
+
+    if [ "${HTTP_CODE}" -ge 200 ] && [ "${HTTP_CODE}" -lt 300 ]; then
+        sleep 2
+        print_success "Connector $CONNECTOR_NAME resumed"
+    else
+        print_error "Failed to resume connector $CONNECTOR_NAME (HTTP ${HTTP_CODE})"
+        return 1
+    fi
 }
 
 # Function to get consumer group lag
@@ -175,6 +211,10 @@ get_topic_message_count() {
 }
 
 print_header "MongoDB Sink Performance Test"
+
+# Ensure Kafka Connect is ready before connector operations
+wait_for_connect_ready 180
+echo ""
 
 # Step 1: Pause both connectors
 print_step "Step 1: Pausing both connectors..."
