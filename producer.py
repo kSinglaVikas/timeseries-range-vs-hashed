@@ -9,17 +9,16 @@ The events are consumed by Kafka Connect and sinked to MongoDB Atlas.
 import json
 import logging
 import os
-import sys
 import time
 import threading
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, Any
-from queue import Queue, Empty
+from queue import Queue
 
 from dotenv import load_dotenv
-from confluent_kafka import Producer, KafkaException
+from confluent_kafka import Producer
 
 # Load environment variables
 load_dotenv()
@@ -38,6 +37,72 @@ PRODUCER_BATCH_SIZE = int(os.getenv('PRODUCER_BATCH_SIZE', '100'))
 PRODUCER_INTERVAL_SECONDS = int(os.getenv('PRODUCER_INTERVAL_SECONDS', '2'))
 PRODUCER_TOTAL_MESSAGES = int(os.getenv('PRODUCER_TOTAL_MESSAGES', '1000000'))
 PRODUCER_PARTITIONS = int(os.getenv('PRODUCER_PARTITIONS', '1'))  # Number of parallel producer threads
+PRODUCER_PROGRESS_INTERVAL_SECONDS = int(os.getenv('PRODUCER_PROGRESS_INTERVAL_SECONDS', '60'))
+
+
+class ProgressTracker:
+    """Thread-safe produced message counter."""
+
+    def __init__(self):
+        self._sent = 0
+        self._lock = threading.Lock()
+
+    def increment(self, count: int = 1):
+        with self._lock:
+            self._sent += count
+
+    def sent(self) -> int:
+        with self._lock:
+            return self._sent
+
+
+def format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, rem = divmod(total_seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def build_progress_bar(progress_ratio: float, width: int = 30) -> str:
+    progress_ratio = max(0.0, min(1.0, progress_ratio))
+    filled = int(progress_ratio * width)
+    return f"{'#' * filled}{'-' * (width - filled)}"
+
+
+def progress_reporter(
+    stop_event: threading.Event,
+    progress: ProgressTracker,
+    total_messages: int,
+    start_time: float,
+    interval_seconds: int,
+):
+    """Log aggregate progress periodically with elapsed time and ETA."""
+    interval = max(1, interval_seconds)
+
+    while not stop_event.wait(interval):
+        sent = progress.sent()
+        elapsed = time.time() - start_time
+        ratio = (sent / total_messages) if total_messages > 0 else 1.0
+        rate = sent / elapsed if elapsed > 0 else 0.0
+
+        if rate > 0 and total_messages > sent:
+            eta_seconds = (total_messages - sent) / rate
+            eta_text = format_duration(eta_seconds)
+        elif total_messages <= sent:
+            eta_text = '00:00:00'
+        else:
+            eta_text = 'N/A'
+
+        logger.info(
+            "Progress [%s] %6.2f%% | Sent %s/%s | Elapsed %s | ETA %s | Rate %s msg/s",
+            build_progress_bar(ratio),
+            ratio * 100,
+            f"{sent:,}",
+            f"{total_messages:,}",
+            format_duration(elapsed),
+            eta_text,
+            f"{rate:,.0f}",
+        )
 
 
 def generate_user_event() -> Dict[str, Any]:
@@ -120,7 +185,7 @@ def delivery_callback(err, msg):
         logger.error(f"Failed to deliver message: {err}")
 
 
-def produce_batch(thread_id: int, message_queue: Queue, start_offset: int, messages_to_send: int, stop_event: threading.Event):
+def produce_batch(thread_id: int, message_queue: Queue, stop_event: threading.Event, progress: ProgressTracker):
     """Producer thread function - consumes messages from queue and sends to Kafka."""
     producer = create_producer()
     sent_count = 0
@@ -145,10 +210,8 @@ def produce_batch(thread_id: int, message_queue: Queue, start_offset: int, messa
                 )
                 
                 sent_count += 1
+                progress.increment(1)
                 producer.poll(0)  # Non-blocking poll for callbacks
-                
-                if sent_count % 50000 == 0:
-                    logger.info(f"Thread {thread_id}: Sent {sent_count} messages")
                 
             except Exception as e:
                 logger.error(f"Thread {thread_id} error: {type(e).__name__}: {e}", exc_info=True)
@@ -198,6 +261,11 @@ def generate_events_parallel(message_queue: Queue, total_messages: int, num_thre
 
 def produce_events(batch_size: int = 100):
     """Produce events to Kafka using parallel threads."""
+    report_stop_event = threading.Event()
+    run_start_time = time.time()
+    progress = ProgressTracker()
+    reporter_thread = None
+
     try:
         # Message queue for thread-safe communication (larger buffer for throughput)
         message_queue = Queue(maxsize=50000)
@@ -205,6 +273,20 @@ def produce_events(batch_size: int = 100):
         
         num_producer_threads = PRODUCER_PARTITIONS
         logger.info(f"Starting production with {num_producer_threads} parallel producer threads")
+
+        reporter_thread = threading.Thread(
+            target=progress_reporter,
+            args=(
+                report_stop_event,
+                progress,
+                PRODUCER_TOTAL_MESSAGES,
+                run_start_time,
+                PRODUCER_PROGRESS_INTERVAL_SECONDS,
+            ),
+            name='ProgressReporter',
+            daemon=False,
+        )
+        reporter_thread.start()
         
         # Start generation thread
         gen_thread = threading.Thread(
@@ -216,12 +298,11 @@ def produce_events(batch_size: int = 100):
         
         # Start producer threads
         producer_threads = []
-        messages_per_thread = PRODUCER_TOTAL_MESSAGES // num_producer_threads
         
         for i in range(num_producer_threads):
             thread = threading.Thread(
                 target=produce_batch,
-                args=(i, message_queue, i * messages_per_thread, messages_per_thread, stop_event),
+                args=(i, message_queue, stop_event, progress),
                 name=f"Producer-{i}",
                 daemon=False
             )
@@ -239,6 +320,18 @@ def produce_events(batch_size: int = 100):
         # Wait for all producer threads to complete
         for thread in producer_threads:
             thread.join()
+
+        sent = progress.sent()
+        elapsed = time.time() - run_start_time
+        ratio = (sent / PRODUCER_TOTAL_MESSAGES) if PRODUCER_TOTAL_MESSAGES > 0 else 1.0
+        logger.info(
+            "Final Progress [%s] %6.2f%% | Sent %s/%s | Elapsed %s",
+            build_progress_bar(ratio),
+            ratio * 100,
+            f"{sent:,}",
+            f"{PRODUCER_TOTAL_MESSAGES:,}",
+            format_duration(elapsed),
+        )
         
         logger.info("All producer threads completed")
     
@@ -249,6 +342,10 @@ def produce_events(batch_size: int = 100):
         logger.error(f"Unexpected error: {e}")
         stop_event.set()
         raise
+    finally:
+        report_stop_event.set()
+        if reporter_thread and reporter_thread.is_alive():
+            reporter_thread.join()
 
 
 def main():
