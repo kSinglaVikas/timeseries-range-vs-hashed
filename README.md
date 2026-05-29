@@ -31,6 +31,10 @@ This pipeline deploys two MongoDB sink connectors:
 
 If you prefer to set up manually or troubleshoot issues, follow these steps in order:
 
+### Prerequisites
+1. Install Docker and Docker Compose
+2. Install Python 3.8+
+
 ### 1. Configure MongoDB Atlas
 
 1. Create a MongoDB Atlas cluster or use an existing one
