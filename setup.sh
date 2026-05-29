@@ -160,7 +160,7 @@ if docker ps --format '{{.Names}}' | grep -q "kafka-1"; then
     print_success "Kafka started"
 else
     print_error "Kafka failed to start"
-    docker-compose logs kafka | tail -20
+    ${DOCKER_COMPOSE_CMD} logs kafka | tail -20
     exit 1
 fi
 
@@ -182,7 +182,7 @@ print_step "Creating Kafka topic with configured partition count..."
 source .env
 TOPIC_NAME=${KAFKA_TOPIC:-events}
 TOPIC_PARTITIONS=${KAFKA_TOPIC_PARTITIONS:-10}
-docker compose exec -T kafka kafka-topics \
+${DOCKER_COMPOSE_CMD} exec -T kafka kafka-topics \
     --bootstrap-server kafka:29092 \
     --create \
     --if-not-exists \
@@ -190,6 +190,31 @@ docker compose exec -T kafka kafka-topics \
     --partitions "$TOPIC_PARTITIONS" \
     --replication-factor 1 > /dev/null
 print_success "Topic '$TOPIC_NAME' ready with $TOPIC_PARTITIONS partitions"
+
+print_step "Waiting for Kafka Connect REST API to become ready..."
+CONNECT_WAIT_SECONDS=180
+CONNECT_CHECK_INTERVAL=5
+CONNECT_ELAPSED=0
+CONNECT_READY=false
+
+while [ "$CONNECT_ELAPSED" -lt "$CONNECT_WAIT_SECONDS" ]; do
+    if curl -s "http://localhost:8083/" > /dev/null 2>&1; then
+        CONNECT_READY=true
+        break
+    fi
+
+    sleep "$CONNECT_CHECK_INTERVAL"
+    CONNECT_ELAPSED=$((CONNECT_ELAPSED + CONNECT_CHECK_INTERVAL))
+done
+
+if [ "$CONNECT_READY" = true ]; then
+    print_success "Kafka Connect API is reachable"
+else
+    print_error "Kafka Connect API is still not reachable after ${CONNECT_WAIT_SECONDS}s"
+    echo "Recent Kafka Connect logs:"
+    ${DOCKER_COMPOSE_CMD} logs --tail=50 kafka-connect
+    exit 1
+fi
 
 echo ""
 
